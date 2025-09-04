@@ -1,0 +1,6 @@
+
+ boundless proving benchmark --request-ids 0x2546c553d857d20658ece248f7c7d0861a2406816558b423 BONSAI_API_URL=http://localhost:8081 BONSAI_API_KEY=""
+
+./target/release/boundless --rpc-url http://127.0.0.1:8545 proving benchmark --request-ids 0x2546c553d857d20658ece248f7c7d0861a240681a4d8e61f
+
+BONSAI_API_URL=http://localhost:8081 BONSAI_API_KEY="" RUST_LOG=debug   ./target/debug/boundless --private-key <> --rpc-url http://127.0.0.1:8545 proving submit --request-ids 0xc2db89b2bd434ceac6c74fbc0b2ad3a280e66db04f2978b8
