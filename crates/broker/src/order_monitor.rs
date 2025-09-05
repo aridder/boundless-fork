@@ -221,7 +221,10 @@ where
         Ok(monitor)
     }
 
-    async fn lock_order(&self, order: &OrderRequest) -> Result<U256, OrderMonitorErr> {
+    async fn lock_order(
+        &self,
+        order: &OrderRequest
+    ) -> Result<U256, OrderMonitorErr> {
         let request_id = order.request.id;
 
         let order_status = self
@@ -259,7 +262,11 @@ where
         );
         let lock_block = self
             .market
-            .lock_request(&order.request, order.client_sig.clone(), conf_priority_gas)
+            .lock_request(
+                &order.request,
+                order.client_sig.clone(),
+                conf_priority_gas
+            )
             .await
             .map_err(|e| -> OrderMonitorErr {
                 match e {
@@ -411,6 +418,7 @@ where
         &self,
         current_block_timestamp: u64,
         min_deadline: u64,
+        max_order_age_for_lock_attempt_secs: Option<u64>,
     ) -> Result<Vec<Arc<OrderRequest>>> {
         let mut candidate_orders: Vec<Arc<OrderRequest>> = Vec::new();
 
@@ -418,7 +426,20 @@ where
             order: &OrderRequest,
             current_block_timestamp: u64,
             min_deadline: u64,
+            max_order_age_for_lock_attempt_secs: Option<u64>,
         ) -> bool {
+            // if let Some(max_age) = max_order_age_for_lock_attempt_secs {
+            //     let order_age = now_timestamp().saturating_sub(order.request.offer.biddingStart);
+            //     if order_age > max_age {
+            //         tracing::debug!(
+            //             "Request {:x} is too old to attempt a lock. Age: {}, Max age: {}. Skipping.",
+            //             order.request.id,
+            //             order_age,
+            //             max_age
+            //         );
+            //         return false;
+            //     }
+            // }
             let expiration = order.expiry();
             if expiration < current_block_timestamp {
                 tracing::debug!("Request {:x} has now expired. Skipping.", order.request.id);
@@ -468,11 +489,16 @@ where
                     order.request.id
                 );
                 self.skip_order(&order, "was fulfilled by other").await;
-            } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
+            } else if !is_within_deadline(
+                &order,
+                current_block_timestamp,
+                min_deadline,
+                max_order_age_for_lock_attempt_secs,
+            ) {
                 self.skip_order(&order, "expired").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
-                tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
-                candidate_orders.push(order);
+                // tracing::info!("Request 0x{:x} was locked by another prover but expired unfulfilled, setting status to pending proving", order.request.id);
+                // candidate_orders.push(order);
             }
         }
 
@@ -498,7 +524,7 @@ where
                     tracing::debug!("Request 0x{:x} was scheduled to be locked by us, but is already locked by us. Proceeding to prove.", order.request.id);
                     candidate_orders.push(order);
                 }
-            } else if !is_within_deadline(&order, current_block_timestamp, min_deadline) {
+            } else if !is_within_deadline(&order, current_block_timestamp, min_deadline, max_order_age_for_lock_attempt_secs) {
                 self.skip_order(&order, "insufficient deadline").await;
             } else if is_target_time_reached(&order, current_block_timestamp) {
                 candidate_orders.push(order);
@@ -878,7 +904,7 @@ where
                         };
 
                         // Get orders that are valid and ready for locking/proving, skipping orders that are now invalid for proving, due to expiring, being locked by another prover, etc.
-                        let mut valid_orders = self.get_valid_orders(block_timestamp, monitor_config.min_deadline).await?;
+                        let mut valid_orders = self.get_valid_orders(block_timestamp, monitor_config.min_deadline, None).await?;
 
                         if valid_orders.is_empty() {
                             tracing::trace!(
@@ -1240,7 +1266,7 @@ pub(crate) mod tests {
             .insert(expired_order_id.clone(), Arc::from(expired_order))
             .await;
 
-        let result = ctx.monitor.get_valid_orders(current_timestamp, 0).await.unwrap();
+        let result = ctx.monitor.get_valid_orders(current_timestamp, 0, None).await.unwrap();
 
         assert!(result.is_empty());
 
@@ -1267,7 +1293,7 @@ pub(crate) mod tests {
         let order_2_id = order.id();
         ctx.monitor.prove_cache.insert(order_2_id.clone(), Arc::from(order)).await;
 
-        let result = ctx.monitor.get_valid_orders(current_timestamp, 100).await.unwrap();
+        let result = ctx.monitor.get_valid_orders(current_timestamp, 100, None).await.unwrap();
 
         assert!(result.is_empty());
 
@@ -1299,7 +1325,7 @@ pub(crate) mod tests {
         ctx.monitor.lock_and_prove_cache.insert(order.id(), Arc::from(order)).await;
 
         let result =
-            ctx.monitor.get_valid_orders(current_timestamp, current_timestamp + 100).await.unwrap();
+            ctx.monitor.get_valid_orders(current_timestamp, current_timestamp + 100, None).await.unwrap();
 
         assert!(result.is_empty());
 
@@ -1734,7 +1760,7 @@ pub(crate) mod tests {
 
         // Call get_valid_orders with current timestamp - this should NOT return either order
         // because their target_timestamp is in the future
-        let valid_orders = ctx.monitor.get_valid_orders(current_timestamp, 50).await.unwrap();
+        let valid_orders = ctx.monitor.get_valid_orders(current_timestamp, 50, None).await.unwrap();
 
         assert!(
             valid_orders.is_empty(),
@@ -1755,7 +1781,7 @@ pub(crate) mod tests {
 
         // Now test with future timestamp - both orders should be valid
         let valid_orders_in_future =
-            ctx.monitor.get_valid_orders(future_timestamp + 1, 50).await.unwrap();
+            ctx.monitor.get_valid_orders(future_timestamp + 1, 50, None).await.unwrap();
 
         assert_eq!(
             valid_orders_in_future.len(),

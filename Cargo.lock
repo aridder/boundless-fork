@@ -2653,6 +2653,7 @@ dependencies = [
  "aws-sdk-s3",
  "boundless-market-test-utils",
  "bytemuck",
+ "bytes",
  "chrono",
  "clap",
  "dashmap",

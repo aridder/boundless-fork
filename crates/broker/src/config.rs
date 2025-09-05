@@ -113,6 +113,13 @@ impl Default for OrderCommitmentPriority {
     }
 }
 
+/// Rule for skipping preflight checks for a given address.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SkipPreflightRule {
+    pub address: Address,
+    pub total_cycles: u64,
+}
+
 /// All configuration related to markets mechanics
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
@@ -137,6 +144,14 @@ pub struct MarketConf {
     ///
     /// Orders over this max_cycles will be skipped after preflight
     pub max_mcycle_limit: Option<u64>,
+    /// Max age of a lock before it is considered expired (in seconds)
+    pub max_lock_expiry_age_secs: Option<u64>,
+    /// Optional: Skip preflight for a given address and use the defined total_cycles
+    pub skip_preflight_rules: Option<Vec<SkipPreflightRule>>,
+    /// Optional: A simpler way to skip preflight for an address with a given cycle count.
+    pub skip_preflight_cycles: Option<std::collections::HashMap<Address, u64>>,
+    /// Optional: Gas price increase factor for pending transactions.
+    pub gas_increase_factor: Option<f64>,
     /// Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
     ///
     /// If enabled, the order will be preflighted without constraints.
@@ -262,6 +277,10 @@ impl Default for MarketConf {
             mcycle_price_stake_token: "0.001".to_string(),
             assumption_price: None,
             max_mcycle_limit: None,
+            max_lock_expiry_age_secs: Some(200),
+            skip_preflight_rules: None,
+            skip_preflight_cycles: None,
+            gas_increase_factor: None,
             priority_requestor_addresses: None,
             max_journal_bytes: defaults::max_journal_bytes(), // 10 KB
             peak_prove_khz: None,

@@ -10,6 +10,12 @@ mcycle_price = "0.0000005"
 # Similar to the mcycle_price option above. This is used to determine the minimum price to accept an
 # order when paid in staking tokens, as is the case for orders with an expired lock.
 mcycle_price_stake_token = "0.0001"
+# Optional: Skip preflight for a given address and use the defined total_cycles
+#skip_preflight_rules = [
+#    { address = "0x...", total_cycles = 1000 },
+#]
+# Optional: A simpler way to skip preflight for an address with a given cycle count.
+#skip_preflight_cycles = { "0x..." = 1000 }
 # Optional priority requestor addresses that can bypass the mcycle limit and max input size limit.
 #
 # If enabled, the order will be preflighted without constraints.

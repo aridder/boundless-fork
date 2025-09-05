@@ -311,12 +311,20 @@ where
             return Ok(Skip);
         };
 
-        let (min_deadline, allowed_addresses_opt, denied_addresses_opt) = {
+        let (
+            min_deadline,
+            allowed_addresses_opt,
+            denied_addresses_opt,
+            skip_preflight_rules,
+            skip_preflight_cycles,
+        ) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
                 config.market.min_deadline,
                 config.market.allow_client_addresses.clone(),
                 config.market.deny_requestor_addresses.clone(),
+                config.market.skip_preflight_rules.clone(),
+                config.market.skip_preflight_cycles.clone(),
             )
         };
 
@@ -455,6 +463,41 @@ where
                 "Insufficient available stake to lock order {order_id}. Requires {lockin_stake}, has {available_stake}"
             );
             return Ok(Skip);
+        }
+
+        let client_addr = order.request.client_address();
+        if let Some(rules) = skip_preflight_rules {
+            let rules_map: std::collections::HashMap<Address, u64> =
+                rules.into_iter().map(|rule| (rule.address, rule.total_cycles)).collect();
+            if let Some(total_cycles) = rules_map.get(&client_addr) {
+                tracing::info!(
+                    "Order {order_id} preflight skipped for client {} using configured total_cycles {} from skip_preflight_rules.",
+                    client_addr, total_cycles
+                );
+                // TODO: For now, we are treating skipped preflight orders as lockable.
+                // This might need refinement based on desired behavior for skipped orders.
+                let now = now_timestamp();
+                return Ok(Lock {
+                    total_cycles: *total_cycles,
+                    target_timestamp_secs: now, // Lock immediately
+                    expiry_secs: order.expiry(),
+                });
+            }
+        }
+
+        if let Some(cycles_map) = skip_preflight_cycles {
+            if let Some(total_cycles) = cycles_map.get(&client_addr) {
+                tracing::info!(
+                    "Order {order_id} preflight skipped for client {} using configured total_cycles {} from skip_preflight_cycles.",
+                    client_addr, total_cycles
+                );
+                let now = now_timestamp();
+                return Ok(Lock {
+                    total_cycles: *total_cycles,
+                    target_timestamp_secs: now, // Lock immediately
+                    expiry_secs: order.expiry(),
+                });
+            }
         }
 
         // Calculate exec limit (handles priority requestors and config internally)
@@ -854,115 +897,102 @@ where
     ///
     /// The reason for calculating both preflight and prove limits is to execute the order with
     /// a large enough cycle limit for both lock and fulfill orders as well as for if the order
-    /// expires and to prove after lock expiry so that the execution can be cached and only happen
-    /// once. The prove limit is the limit for this specific order variant and decides the max
-    /// cycles the order can be for the prover to decide to commit to proving it.
+    /// is a priority order, which will be executed without a limit.
     fn calculate_exec_limits(
         &self,
         order: &OrderRequest,
         order_gas_cost: U256,
     ) -> Result<(u64, u64), OrderPickerErr> {
-        // Derive parameters from order
         let order_id = order.id();
-        let is_fulfill_after_lock_expire =
-            order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
-        let now = now_timestamp();
-        let request_expiration = order.expiry();
-        let lock_expiry = order.request.lock_expires_at();
-        let order_expiry = order.request.expires_at();
         let (
+            mcycle_price,
+            mcycle_price_stake_token,
             max_mcycle_limit,
             peak_prove_khz,
-            min_mcycle_price,
-            min_mcycle_price_stake_token,
             priority_requestor_addresses,
+            additional_proof_cycles,
         ) = {
             let config = self.config.lock_all().context("Failed to read config")?;
             (
+                config.market.mcycle_price.clone(),
+                config.market.mcycle_price_stake_token.clone(),
                 config.market.max_mcycle_limit,
                 config.market.peak_prove_khz,
-                parse_ether(&config.market.mcycle_price).context("Failed to parse mcycle_price")?,
-                parse_units(&config.market.mcycle_price_stake_token, self.stake_token_decimals)
-                    .context("Failed to parse mcycle_price")?
-                    .into(),
                 config.market.priority_requestor_addresses.clone(),
+                config.market.additional_proof_cycles,
             )
         };
 
-        // Pricing based cycle limits: Calculate the cycle limit based on stake price
-        let stake_based_limit = if min_mcycle_price_stake_token == U256::ZERO {
-            tracing::warn!("min_mcycle_price_stake_token is 0, setting unlimited exec limit");
+        let mcycle_price: U256 =
+            parse_ether(&mcycle_price).context("Failed to parse mcycle_price")?.into();
+        let mcycle_price_stake_token: U256 =
+            parse_units(&mcycle_price_stake_token, self.stake_token_decimals)
+                .context("Failed to parse mcycle_price_stake_token")?
+                .into();
+
+        let is_fulfill_after_lock_expire =
+            order.fulfillment_type == FulfillmentType::FulfillAfterLockExpire;
+
+        // If the order has a priority requestor, use u64::MAX as the limit
+        if let Some(priority_requestor_addresses) = priority_requestor_addresses {
+            if priority_requestor_addresses.contains(&order.request.client_address()) {
+                tracing::debug!(
+                    "Order {order_id} has priority requestor, using u64::MAX as the limit"
+                );
+                return Ok((u64::MAX, u64::MAX));
+            }
+        }
+
+        // Determine cycle limits based on stake and ETH prices
+        let stake_based_limit = if mcycle_price_stake_token == U256::ZERO {
             u64::MAX
         } else {
-            let price = order.request.offer.stake_reward_if_locked_and_not_fulfilled();
+            let stake = U256::from(order.request.offer.lockStake);
+            (stake * ONE_MILLION / mcycle_price_stake_token)
+                .try_into()
+                .unwrap_or(u64::MAX)
+        };
 
-            let initial_stake_based_limit =
-                (price.saturating_mul(ONE_MILLION).div_ceil(min_mcycle_price_stake_token))
-                    .try_into()
-                    .unwrap_or(u64::MAX);
-
-            tracing::trace!(
-                "Order {order_id} initial stake based limit: {initial_stake_based_limit}"
-            );
-            initial_stake_based_limit
+        let eth_based_limit = if mcycle_price == U256::ZERO {
+            u64::MAX
+        } else {
+            ((order.request.offer.maxPrice.saturating_sub(order_gas_cost)) * ONE_MILLION
+                / mcycle_price)
+                .try_into()
+                .unwrap_or(u64::MAX)
         };
 
         let mut preflight_limit = stake_based_limit;
         let mut prove_limit = stake_based_limit;
 
-        // If lock and fulfill, potentially increase that to ETH-based value if higher
-        if !is_fulfill_after_lock_expire {
-            // Calculate eth-based limit for lock and fulfill orders
-            let eth_based_limit = if min_mcycle_price == U256::ZERO {
-                tracing::warn!("min_mcycle_price is 0, setting unlimited exec limit");
-                u64::MAX
-            } else {
-                (U256::from(order.request.offer.maxPrice)
-                    .saturating_sub(order_gas_cost)
-                    .saturating_mul(ONE_MILLION)
-                    / min_mcycle_price)
-                    .try_into()
-                    .unwrap_or(u64::MAX)
-            };
-
-            if eth_based_limit > stake_based_limit {
-                // Eth based limit is higher, use that for both preflight and prove
-                preflight_limit = eth_based_limit;
-                prove_limit = eth_based_limit;
-            } else {
-                // Otherwise lower the prove cycle limit for this order variant
-                prove_limit = eth_based_limit;
-            }
-            tracing::debug!(
-                "Order {order_id} initial preflight pricing cycle limit to prove: {} cycles",
-                prove_limit
-            );
+        if is_fulfill_after_lock_expire {
+            // For lock-expired orders, only stake-based matters
+            prove_limit = stake_based_limit;
+            preflight_limit = stake_based_limit;
+        } else if stake_based_limit < eth_based_limit {
+            // Stake-based is lower, but ETH allows more; use stake for preflight, ETH for prove
+            prove_limit = eth_based_limit;
+            preflight_limit = stake_based_limit; // Preflight with tighter limit
+        } else {
+            // Stake-based is higher or equal, use it for both
+            prove_limit = stake_based_limit;
+            preflight_limit = stake_based_limit;
         }
+
+        tracing::debug!(
+            "Order {order_id} initial preflight pricing cycle limit to prove: {} cycles",
+            prove_limit
+        );
 
         debug_assert!(
             preflight_limit >= prove_limit,
             "preflight_limit ({preflight_limit}) < prove_limit ({prove_limit})",
         );
 
-        // Apply max mcycle limit cap
-        let mut max_mcycle_limit = max_mcycle_limit;
-        // Check if priority requestor address - skip all exec limit calculations
-        let client_addr = order.request.client_address();
-        if let Some(allow_addresses) = &priority_requestor_addresses {
-            if allow_addresses.contains(&client_addr) {
-                max_mcycle_limit = None;
-                tracing::debug!("Order {order_id} exec limit config ignored due to client {} being part of priority_requestor_addresses.", client_addr);
-            }
-        }
-
-        if let Some(config_mcycle_limit) = max_mcycle_limit {
-            let config_cycle_limit = config_mcycle_limit.saturating_mul(1_000_000);
+        // Apply config and deadline caps
+        if let Some(config_cycle_limit) = max_mcycle_limit {
+            let config_cycle_limit = config_cycle_limit * 1_000_000;
             if prove_limit > config_cycle_limit {
-                tracing::debug!(
-                    "Order {order_id} prove limit capped by max_mcycle_limit config: {} -> {} cycles",
-                    prove_limit,
-                    config_cycle_limit
-                );
                 prove_limit = config_cycle_limit;
                 preflight_limit = config_cycle_limit;
             } else if preflight_limit > config_cycle_limit {
@@ -970,23 +1000,25 @@ where
             }
         }
 
-        // Apply timing constraints based on peak prove khz
         if let Some(peak_prove_khz) = peak_prove_khz {
-            let prove_window = request_expiration.saturating_sub(now);
-            let prove_deadline_limit = calculate_max_cycles_for_time(peak_prove_khz, prove_window);
-            if prove_limit > prove_deadline_limit {
-                tracing::debug!("Order {order_id} prove limit capped by deadline: {} -> {} cycles ({:.1}s at {} peak_prove_khz)", prove_limit, prove_deadline_limit, prove_window, peak_prove_khz);
-                prove_limit = prove_deadline_limit;
+            let now = now_timestamp();
+            let lock_expiry = order.request.lock_expires_at();
+            let order_expiry = order.expiry();
+
+            let prove_window = order_expiry.saturating_sub(now);
+            let deadline_prove_limit = prove_window * peak_prove_khz * 1000;
+
+            if prove_limit > deadline_prove_limit {
+                tracing::debug!("Order {order_id} prove limit capped by deadline: {} -> {} cycles ({:.1}s at {} peak_prove_khz)", prove_limit, deadline_prove_limit, prove_window, peak_prove_khz);
+                prove_limit = deadline_prove_limit;
             }
 
             // For preflight, also check fulfill-after-expiry window
             let new_preflight_limit = if !is_fulfill_after_lock_expire {
                 let fulfill_after_expiry_window = order_expiry.saturating_sub(lock_expiry);
-                let fulfill_after_expiry_limit =
-                    calculate_max_cycles_for_time(peak_prove_khz, fulfill_after_expiry_window);
-                std::cmp::max(prove_deadline_limit, fulfill_after_expiry_limit)
+                fulfill_after_expiry_window * peak_prove_khz * 1000
             } else {
-                prove_deadline_limit
+                deadline_prove_limit
             };
 
             if preflight_limit > new_preflight_limit {
@@ -1006,7 +1038,10 @@ where
             "preflight_limit ({preflight_limit}) < prove_limit ({prove_limit})",
         );
 
-        Ok((preflight_limit, prove_limit))
+        Ok((
+            preflight_limit.saturating_sub(additional_proof_cycles),
+            prove_limit.saturating_sub(additional_proof_cycles),
+        ))
     }
 }
 
