@@ -213,13 +213,11 @@ services:
     cpus: 8
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
 
-    # comment-out if running in CPU proving mode
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              # TODO: how to scale this with N gpus?
               device_ids: ["0"]
               capabilities: [gpu]
 
@@ -229,13 +227,11 @@ services:
     cpus: 8
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
 
-    # comment-out if running in CPU proving mode
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              # TODO: how to scale this with N gpus?
               device_ids: ["1"]
               capabilities: [gpu]
 
