@@ -22,6 +22,7 @@ use aws_sdk_s3::{
     error::ProvideErrorMetadata,
     Client as S3Client,
 };
+pub use boundless_market::storage::fetch_url_with_retry;
 use futures::StreamExt;
 use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -362,12 +363,7 @@ pub async fn upload_image_uri(
         request.id,
         request.imageUrl
     );
-    let uri = create_uri_handler(&request.imageUrl, config, false)
-        .await
-        .context("URL handling failed")?;
-
-    let image_data = uri
-        .fetch()
+    let image_data = fetch_url_with_retry(&request.imageUrl)
         .await
         .with_context(|| format!("Failed to fetch image URI: {}", request.imageUrl))?;
     let image_id = risc0_zkvm::compute_image_id(&image_data)
@@ -385,7 +381,7 @@ pub async fn upload_image_uri(
         request.id
     );
     prover
-        .upload_image(&image_id_str, image_data)
+        .upload_image(&image_id_str, image_data.to_vec())
         .await
         .context("Failed to upload image to prover")?;
 
@@ -427,8 +423,7 @@ pub async fn upload_input_uri(
                 .context("URL handling failed")?;
 
             let input_data = boundless_market::input::GuestEnv::decode(
-                &input_uri
-                    .fetch()
+                &fetch_url_with_retry(input_uri_str)
                     .await
                     .with_context(|| format!("Failed to fetch input URI: {input_uri_str}"))?,
             )

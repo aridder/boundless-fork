@@ -87,7 +87,7 @@ use boundless_market::{
     input::GuestEnv,
     request_builder::{OfferParams, RequirementParams},
     selector::ProofType,
-    storage::{fetch_url, StorageProvider, StorageProviderConfig},
+    storage::{fetch_url_with_retry, StorageProvider, StorageProviderConfig},
     Client, Deployment, StandardClient,
 };
 
@@ -1306,7 +1306,7 @@ where
 /// Execute a proof request using the RISC Zero zkVM executor
 async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
     tracing::info!("Fetching program from {}", request.imageUrl);
-    let program = fetch_url(&request.imageUrl).await?;
+    let program = fetch_url_with_retry(&request.imageUrl).await?;
 
     tracing::info!("Processing input");
     let env = match request.input.inputType {
@@ -1315,7 +1315,7 @@ async fn execute(request: &ProofRequest) -> Result<SessionInfo> {
             let input_url =
                 std::str::from_utf8(&request.input.data).context("Input URL is not valid UTF-8")?;
             tracing::info!("Fetching input from {}", input_url);
-            GuestEnv::decode(&fetch_url(input_url).await?)?
+            GuestEnv::decode(&fetch_url_with_retry(input_url).await?)?
         }
         _ => bail!("Unsupported input type"),
     };

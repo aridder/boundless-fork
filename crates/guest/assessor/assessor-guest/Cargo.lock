@@ -1969,6 +1969,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-s3",
  "bytemuck",
+ "bytes",
  "chrono",
  "clap",
  "dashmap",
