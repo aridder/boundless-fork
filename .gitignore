@@ -23,7 +23,7 @@ deployment_secrets.toml
 !.env.localnet-template
 !.env.eth-sepolia
 !.env.base-sepolia
-!.env.base
+.env.base
 
 # Ignore broker config file(s)
 *broker*.toml
