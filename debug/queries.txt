@@ -1,0 +1,20 @@
+
+docker exec bento-broker-1 sqlite3 /db/broker.db "UPDATE orders SET data = json_set(json_set(data, '\$.status', 'PendingProving'), '\$.update_at', '$(date +%s)') WHERE id LIKE '%c2db89b2bd434ceac6c74fbc0b2ad3a280e66db04f2978b8%';"
+
+docker run --rm -it -v bento_broker-data:/db nouchka/sqlite3   /db/broker.db   "SELECT id,
+          json_extract(data, '\$.status')        AS status,
+          datetime(json_extract(data, '\$.update_at'), 'unixepoch') AS updated_at_human,
+          json_extract(data, '\$.update_at')     AS updated_at
+     FROM orders
+    WHERE id LIKE '%0xe198c6944cae382902a375b0b8673084270a7f8e2545538b%';"
+
+docker run --rm -it -v bento_broker-data:/db nouchka/sqlite3 \
+  /db/broker.db \
+  "UPDATE orders
+      SET data = json_set(
+                    json_set(data, '\$.status', 'PendingProving'),
+                    '\$.update_at', CAST(strftime('%s','now') AS INTEGER)
+                  )
+    WHERE id LIKE '%0xe198c6944cae382902a375b0b8673084270a7f8eb03c709a%';
+   SELECT changes();"
+
