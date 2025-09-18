@@ -61,9 +61,35 @@ x-broker-common: &broker-common
       condition: service_healthy
     gpu_prove_agent0:
       condition: service_started
+    gpu_prove_agent1:
+      condition: service_started
     exec_agent0:
       condition: service_started
     exec_agent1:
+      condition: service_started
+    exec_agent2:
+      condition: service_started
+    exec_agent3:
+      condition: service_started
+    exec_agent4:
+      condition: service_started
+    exec_agent5:
+      condition: service_started
+    exec_agent6:
+      condition: service_started
+    exec_agent7:
+      condition: service_started
+    exec_agent8:
+      condition: service_started
+    exec_agent9:
+      condition: service_started
+    exec_agent10:
+      condition: service_started
+    exec_agent11:
+      condition: service_started
+    exec_agent12:
+      condition: service_started
+    exec_agent13:
       condition: service_started
     aux_agent:
       condition: service_started
@@ -175,6 +201,42 @@ services:
   exec_agent1:
     <<: *exec-agent-common
 
+  exec_agent2:
+    <<: *exec-agent-common
+
+  exec_agent3:
+    <<: *exec-agent-common
+
+  exec_agent4:
+    <<: *exec-agent-common
+
+  exec_agent5:
+    <<: *exec-agent-common
+
+  exec_agent6:
+    <<: *exec-agent-common
+
+  exec_agent7:
+    <<: *exec-agent-common
+
+  exec_agent8:
+    <<: *exec-agent-common
+
+  exec_agent9:
+    <<: *exec-agent-common
+
+  exec_agent10:
+    <<: *exec-agent-common
+
+  exec_agent11:
+    <<: *exec-agent-common
+
+  exec_agent12:
+    <<: *exec-agent-common
+
+  exec_agent13:
+    <<: *exec-agent-common
+
   aux_agent:
     <<: *agent-common
     mem_limit: 256M
@@ -186,7 +248,7 @@ services:
 
   gpu_prove_agent0:
     <<: *agent-common
-    mem_limit: 4G
+    mem_limit: 32G
     cpus: 4
     entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
 
@@ -198,6 +260,22 @@ services:
             - driver: nvidia
               # TODO: how to scale this with N gpus?
               device_ids: ["0"]
+              capabilities: [gpu]
+
+  gpu_prove_agent1:
+    <<: *agent-common
+    mem_limit: 32G
+    cpus: 4
+    entrypoint: /app/agent -t prove --redis-ttl ${REDIS_TTL:-57600}
+
+    # comment-out if running in CPU proving mode
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # TODO: how to scale this with N gpus?
+              device_ids: ["1"]
               capabilities: [gpu]
 
   rest_api:
@@ -213,8 +291,8 @@ services:
       minio:
         condition: service_healthy
 
-    mem_limit: 1G
-    cpus: 1
+    mem_limit: 4G
+    cpus: 4
 
     environment:
       <<: *base-environment

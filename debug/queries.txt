@@ -12,9 +12,9 @@ docker run --rm -it -v bento_broker-data:/db nouchka/sqlite3 \
   /db/broker.db \
   "UPDATE orders
       SET data = json_set(
-                    json_set(data, '\$.status', 'PendingProving'),
+                    json_set(data, '\$.status', 'Skipped'),
                     '\$.update_at', CAST(strftime('%s','now') AS INTEGER)
                   )
-    WHERE id LIKE '%0xe198c6944cae382902a375b0b8673084270a7f8eb03c709a%';
+    WHERE id LIKE '%0x382bba7d7bc9ae86c5de3e16c4ca96bcc0a3478ed2447a36%';
    SELECT changes();"
 

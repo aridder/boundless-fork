@@ -45,6 +45,7 @@ if [[ "${1:-}" == "--new" ]]; then
     --state "$STATE_FILE_LOCATION" \
     --from-bento \
 	--private-key "$PRIVATE_KEY" \
+  --log-level trace \
 	--rpc-url "$RPC_URL"
 else
   echo "🚀 Updating state file at $STATE_FILE_LOCATION..."
