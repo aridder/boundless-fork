@@ -39,6 +39,8 @@ target/
 CLAUDE.md
 .cursor
 
+auto-reset-logs/**.log
+
 
 # Ignore generated files
 contracts/src/EchoImageID.sol
