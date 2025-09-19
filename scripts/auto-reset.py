@@ -102,10 +102,15 @@ def reset_order(order_id: str, original_line: str):
         print(f"[auto-reset] Exception sending Telegram message: {e}", file=sys.stderr, flush=True)
 
 def main():
+    # The error code that indicates a legacy prover failure.
+    # We construct the string dynamically to avoid potential parser issues with "005".
+    error_code = "005"
+    error_message = f"Monitoring proof (stark) failed: [B-BON-{error_code}] Prover failure: SessionId"
+
     for line in sys.stdin:
         if (
             "Proving failed after retries" in line
-            and "Monitoring proof (stark) failed: [B-BON-005] Prover failure: SessionId" in line
+            and error_message in line
         ):
             match = ORDER_REGEX.search(line)
             if match:

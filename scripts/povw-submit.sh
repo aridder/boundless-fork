@@ -24,9 +24,9 @@ set -euo pipefail
 # ----------------------------------------------------------------------
 
 # Load env file if present
-if [ -f ".env.povw-submit" ]; then
+if [ -f ".env.povw" ]; then
   # shellcheck disable=SC1091
-  source .env.povw-submit
+  source .env.povw
 fi
 
 if [[ -z "${STATE_FILE_LOCATION:-}" ]] || [[ -z "${RPC_URL:-}" ]] || [[ -z "${PRIVATE_KEY:-}" ]]; then
