@@ -25,15 +25,15 @@ set -euo pipefail
 # ----------------------------------------------------------------------
 
 # Load env file if present
-if [ -f ".env.povw-prepare" ]; then
+if [ -f ".env.povw" ]; then
   # shellcheck disable=SC1091
-  source .env.povw-prepare
+  source .env.povw
 fi
 
 if [[ -z "${POVW_LOG_ID:-}" ]] || [[ -z "${STATE_FILE_LOCATION:-}" ]]; then
   echo "Error: Missing required environment variables." >&2
   echo "Need POVW_LOG_ID and STATE_FILE_LOCATION." >&2
-  echo "These can also be defined in .env.povw-prepare" >&2
+  echo "These can also be defined in .env-prepare" >&2
   exit 1
 fi
 

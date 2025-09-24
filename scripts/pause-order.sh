@@ -42,7 +42,7 @@ echo "--- [Step 3/3] Resetting SQLite order status to PendingProving ---"
 SQLITE_RESET_SQL="
 UPDATE orders
 SET data = json_set(
-               json_set(data, '\$.status', 'PendingProving'),
+               json_set(data, '\$.status', 'Skipped'),
                '\$.proof_id', NULL
            )
 WHERE id LIKE '%${ORDER_ID_FRAGMENT}%';
